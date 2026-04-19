@@ -1,0 +1,67 @@
+# Build output
+target/
+
+# Generated job output
+output/
+spark-warehouse/
+metastore_db/
+checkpoint/
+checkpoints/
+.spark-staging/
+logs/
+derby.log
+part-*
+_SUCCESS
+_committed_*
+_started_*
+
+# Local datasets and large data files
+data/
+example_data/
+*.csv
+*.tsv
+*.jsonl
+*.parquet
+*.avro
+*.orc
+*.bin
+*.dat
+*.raw
+*.gz
+*.zip
+*.tar
+*.tgz
+*.7z
+
+# Compiled binaries and packaged artifacts
+*.class
+*.jar
+*.war
+*.ear
+*.nar
+
+# Common Hadoop / filesystem metadata files
+*.crc
+._*
+
+# Editor and OS noise
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+*.iml
+.classpath
+.project
+.settings/
+
+# Python / PySpark artifacts
+__pycache__/
+*.py[cod]
+*.pyo
+.venv/
+venv/
+env/
+.ipynb_checkpoints/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
