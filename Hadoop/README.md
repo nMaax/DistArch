@@ -74,4 +74,6 @@ scp target/MapReduceProject-1.0.0.jar your_username@jupyter.polito.it:~/labs/
 | **Local Test** | `mvn exec:java -Dexec.mainClass="..." -Dexec.args="..."` |
 | **Check Output** | `cat ex_out/part-r-00000` |
 
-> **Note on log4j**: You will likely see `WARN` messages about `log4j` when running locally. You can safely ignore these; they do not affect the execution of your MapReduce logic.
+
+> [!NOTE]
+> You will likely see `WARN` messages about `log4j` when running locally. You can safely ignore these; they do not affect the execution of your MapReduce logic.
