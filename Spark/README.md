@@ -67,4 +67,3 @@ print(f"✅ Spark {spark.version} is active on Java {spark._jvm.java.lang.System
 * **ClassVersion Errors:** Double-check that `java -version` returns 21 (Class 61). If it says 55, it's finding Java 11.
 * **Hadoop Jobs:** Since we used `.envrc`, your Hadoop jobs in other folders will still use your global Java 8 default.
 
-Now that your workstation is fully operational, are you diving into RDDs or heading straight for the DataFrame API?
