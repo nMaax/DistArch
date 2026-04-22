@@ -1,7 +1,7 @@
 # Hadoop Installation Guide
 
 ## 1. Java Version Management
-Arch Linux uses `archlinux-java` to switch between versions. [cite_start]For these labs, you must ensure Java 8 is active[cite: 31, 33].
+Arch Linux uses `archlinux-java` to switch between versions. For these labs, you must ensure Java 8 is active.
 
 ```fish
 # List installed versions
@@ -27,14 +27,14 @@ set -gx MAVEN_OPTS "-Xms512m -Xmx2048m"
 ---
 
 ## 3. The Development Workflow (CLI)
-[cite_start]Since you are not installing Hadoop globally, use Maven's lifecycle to build and test [cite: 107-113].
+Since you are not installing Hadoop globally, use Maven's lifecycle to build and test.
 
 ### Build the Project
-[cite_start]Run this in the root of your project to compile your Driver, Mapper, and Reducer classes[cite: 79, 80, 81, 110].
+Run this in the root of your project to compile your Driver, Mapper, and Reducer classes[cite: 79, 80, 81, 110].
 ```fish
 mvn clean package
 ```
-[cite_start]This produces your "thin" JAR in `target/MapReduceProject-1.0.0.jar`[cite: 124].
+This produces your "thin" JAR in `target/MapReduceProject-1.0.0.jar`.
 
 ### Run Locally (Simulation)
 Since you don't have the `hadoop` command, use Maven to execute your code. Maven will automatically pull the required Hadoop libraries from your `~/.m2` folder and put them in the classpath for you.
@@ -44,13 +44,13 @@ mvn exec:java \
   -Dexec.mainClass="it.polito.bigdata.hadoop.DriverBigData" \
   -Dexec.args="2 example_data ex_out test_prefix"
 ```
-* [cite_start]**mainClass**: The full path to your Driver[cite: 166].
-* [cite_start]**args**: Your program arguments (separated by spaces, no commas)[cite: 172].
+* **mainClass**: The full path to your Driver.
+* **args**: Your program arguments (separated by spaces, no commas).
 
 ---
 
 ## 4. Preparing for the Cluster
-[cite_start]When you are ready to upload to `jupyter.polito.it`, you need a JAR that contains only your code, not the libraries[cite: 218].
+When you are ready to upload to `jupyter.polito.it`, you need a JAR that contains only your code, not the libraries.
 
 ### Verify the JAR
 Confirm the JAR is "thin" (contains only your `.class` files):
