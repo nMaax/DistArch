@@ -1,8 +1,7 @@
-# Build output
+# ==========================================
+# Build & Spark Project Output
+# ==========================================
 target/
-
-# Generated job output
-output/
 spark-warehouse/
 metastore_db/
 checkpoint/
@@ -10,12 +9,31 @@ checkpoints/
 .spark-staging/
 logs/
 derby.log
+eventLog/
+spark-events/
 part-*
 _SUCCESS
 _committed_*
 _started_*
 
-# Local datasets and large data files
+# ==========================================
+# local Environment (direnv & uv)
+# ==========================================
+# We ignore the direnv internal cache
+.direnv/
+
+# IMPORTANT: Usually, you COMMIT .envrc so others can use it.
+# But if you have personal paths (like your specific Arch username),
+# you might want to use .envrc.local for those and ignore it here.
+.envrc.local
+
+# uv lock file is usually COMMITTED (like package-lock.json),
+# but if you prefer to only share the pyproject.toml, uncomment below:
+# uv.lock
+
+# ==========================================
+# Local Datasets & Large Files
+# ==========================================
 data/
 example_data/
 *.csv
@@ -33,28 +51,20 @@ example_data/
 *.tgz
 *.7z
 
-# Compiled binaries and packaged artifacts
+# ==========================================
+# Compiled Binaries & Hadoop Metadata
+# ==========================================
 *.class
 *.jar
 *.war
 *.ear
 *.nar
-
-# Common Hadoop / filesystem metadata files
 *.crc
 ._*
 
-# Editor and OS noise
-.DS_Store
-Thumbs.db
-.vscode/
-.idea/
-*.iml
-.classpath
-.project
-.settings/
-
-# Python / PySpark artifacts
+# ==========================================
+# Python / Jupyter Artifacts
+# ==========================================
 __pycache__/
 *.py[cod]
 *.pyo
@@ -65,3 +75,16 @@ env/
 .pytest_cache/
 .mypy_cache/
 .ruff_cache/
+.python-version
+
+# ==========================================
+# Editor and OS Noise
+# ==========================================
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+*.iml
+.classpath
+.project
+.settings/
