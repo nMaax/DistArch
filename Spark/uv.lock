@@ -408,6 +408,15 @@ wheels = [
 ]
 
 [[package]]
+name = "graphframes-py"
+version = "0.11.0"
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/ff/dd/1cd01d5fcaee9e50c5dc7bd897a294d7e2c13d63b62fa56ac35c93cebf99/graphframes_py-0.11.0.tar.gz", hash = "sha256:b228b55fc036413e18276483ab0e92f4fd062127b27d70cbeb5a154264256335", size = 55854, upload-time = "2026-03-31T20:41:14.608Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/de/50/e44bf186876df8818ecaeca3ccb5152d7a9f3cd3ad07bc5850186f42d237/graphframes_py-0.11.0-py3-none-any.whl", hash = "sha256:c074efb37efe2be892dbe245d749afac905fba849c735f0867a02d405f6f69a2", size = 67981, upload-time = "2026-03-31T20:41:13.264Z" },
+]
+
+[[package]]
 name = "h11"
 version = "0.16.0"
 source = { registry = "https://pypi.org/simple" }
@@ -1572,6 +1581,7 @@ name = "spark"
 version = "0.1.0"
 source = { virtual = "." }
 dependencies = [
+    { name = "graphframes-py" },
     { name = "jupyterlab" },
     { name = "numpy" },
     { name = "pyspark" },
@@ -1579,6 +1589,7 @@ dependencies = [
 
 [package.metadata]
 requires-dist = [
+    { name = "graphframes-py", specifier = ">=0.11.0" },
     { name = "jupyterlab", specifier = ">=4.5.6" },
     { name = "numpy", specifier = ">=2.4.6" },
     { name = "pyspark", specifier = ">=4.1.1" },
