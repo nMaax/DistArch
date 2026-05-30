@@ -26,6 +26,8 @@ class MapperBigData1 extends Mapper<
     protected void setup(Context context)
             throws IOException, InterruptedException {
         
+                // We suppose the number of countries is reasonable for main memory
+                // since in the world there exist 192 countries (can't remember the exact number at the moment)
                 countryCounts = new HashMap<>();
                 return;
     }
