@@ -48,8 +48,7 @@ purchases_per_type = (
 # Save the result
 purchases_per_type.write.csv(output_dir1)
 
-# ------------------------------------
-# Part 2
+# ------------------------------------ # Part 2
 
 users_df = users_df.select("UserID") # We dont need Type anymore
 
