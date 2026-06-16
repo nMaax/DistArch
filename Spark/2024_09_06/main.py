@@ -173,7 +173,7 @@ yesterday = daily_income.alias("yesterday")
             # ),
             # ```
             #
-            # Or even
+            # this one instead will NOT work
             # ```
             # on="today.ItemID = yesterday.ItemID AND today.Date = yesterday.NextDate",
             # ```
