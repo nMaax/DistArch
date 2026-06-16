@@ -29,7 +29,15 @@ class MapperBigData2 extends Mapper<
             Text value,         // Input value type
             Context context) throws IOException, InterruptedException {
 
-    		/* Implement the map method */ 
+    		/* Implement the map method */
+
+            String line = value.toString();
+            String[] lineEntries = line.split("\t");
+
+            String userID = lineEntries[0];
+            // String itemID = lineEntries[1]; // Useless, but left for clarity
+
+            context.write(new Text(userID), new IntWritable(1));
     }
 
     @Override

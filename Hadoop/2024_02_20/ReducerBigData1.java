@@ -5,6 +5,7 @@ import java.io.IOException;
 import org.apache.hadoop.io.IntWritable;
 import org.apache.hadoop.io.Text;
 import org.apache.hadoop.mapreduce.Reducer;
+import org.apache.hadoop.io.NullWritable;
 
 /**
  * Exam - Reducer 1
@@ -13,9 +14,9 @@ import org.apache.hadoop.mapreduce.Reducer;
 /* Set the proper data types for the (key,value) pairs */
 class ReducerBigData1 extends Reducer<
                 Text,           // Input key type
-                Text,    // Input value type
+                NullWritable,    // Input value type
                 Text,           // Output key type
-                NullWritable> {  // Output value type
+                Text> {  // Output value type
 
     @Override
     protected void setup(Context context)
@@ -26,39 +27,23 @@ class ReducerBigData1 extends Reducer<
     @Override
     protected void reduce(
         Text key, // Input key type
-        Iterable<Text> values, // Input value type
+        Iterable<NullWritable> values, // Input value type
         Context context) throws IOException, InterruptedException {
 
 		/* Implement the reduce method */
 
-		// Will receive "UserID": [Item1, Item2, Item1, Item3, ...]
+		// Will receive "UserID,ItemID": [Null, Null, ...]
 
-		// Sets naturally discard duplicates
-		HashSet<Integer> items = new HashSet<>(); // up to 50
-		int i = 0;
-		for (value:values) { // We do not convert values to an array
-            items.put(value.get());
-            i++;
+		// DISTINCT PATTERN:
+		// Decouple User and Item, now that we merged them via the mapper
+		// they are unique and distinct pairs
 
-            // Cant remind the API for sets, I just want to break the loop
-            // when 50 DISTINCT items populated the set
-            // otherwise we may end up with a too large set (e.g. ~1M)
-            if (items.size >= 50) {
-                break
-            }
+		String[] userItem = key.toString().split(",");
+		String user = userItem[0];
+		String item = userItem[1];
+
+        context.write(new Text(user), new Text(item)); // This writes with a `\t` (tab) separating items
 		}
-
-		// Maybe the user purchased too few items
-		if (items.size < 50) {
-            return;
-		}
-
-		// key: userID is already writable
-		// value: nothing, we dont need anything
-		context.write(key, NullWritable.get())
-		}
-        
-    }
 
     @Override
     protected void cleanup(Context context)

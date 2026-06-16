@@ -5,6 +5,7 @@ import java.io.IOException;
 import org.apache.hadoop.io.IntWritable;
 import org.apache.hadoop.io.Text;
 import org.apache.hadoop.mapreduce.Reducer;
+import org.apache.hadoop.io.NullWritable;
 
 /**
  * Exam - Reducer 2
@@ -15,7 +16,7 @@ class ReducerBigData2 extends Reducer<
                 Text,           // Input key type
                 IntWritable,    // Input value type
                 Text,           // Output key type
-                IntWritable> {  // Output value type
+                NullWritable> {  // Output value type
 
     @Override
     protected void setup(Context context)
@@ -30,6 +31,15 @@ class ReducerBigData2 extends Reducer<
         Context context) throws IOException, InterruptedException {
         
 		/* Implement the reduce method */
+
+		int count = 0;
+		for (IntWritable value:values) {
+            count += value.get();
+		}
+
+		if (count > 50) {
+            context.write(key, NullWritable.get());
+		}
     	
     }
 
