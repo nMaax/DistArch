@@ -55,6 +55,7 @@ exceeding_organizers_rdd.saveAsTextFile(output_path)
 
 # NOTE: .count() is an action for RDDs, but we only call .map(..., 1).reduceByKey(), so the only action here is saving on text file
 
+
 # ---- OR ----
 
 
@@ -82,6 +83,8 @@ exceeding_organizers_df = meetings_w_potential_participants_df\
 exceeding_organizers_df.write.csv(output_path) # save the result
 
 # NOTE: .count() is NOT an action for DFs if following groupBy(), so the only action here is saving on the file
+
+
 
 
 # ------------------------------------
