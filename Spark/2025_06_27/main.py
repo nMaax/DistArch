@@ -25,6 +25,10 @@ output folder. The output contains one line for each user type.
 The output format is as follows:
 user type, total number of purchases made by the Italian users of this user type
 from 2010 to 2020.
+
+Note. Suppose there is at least one purchase of at least one Italian user for each
+user type from 2010 to 2020, i.e., no user type is associated with zero
+purchases made by Italian users from 2010 to 2020
 """
 
 users = spark.read.csv(users_path, header=True, inferSchema=True) # (UserID,Age,Gender,Country,UserType)
@@ -55,7 +59,7 @@ purchases_2010_to_2020 = (
     .groupBy("Type")
     .count()
     .withColumnRenamed("count(1)", "Purchases")
-    .write.csv(output_path_1)
+    .write.csv(output_path_1, header=True) # Type, Purchases as first line
 )
 
 # ------------------------------------
@@ -78,6 +82,8 @@ purchases_from_2024 = (
     .select("PurchaseID", "UserID")
     )
 
+# NOTE: left_anti returns all entries who did NOT appear on the right dataframe
+# therefore, the resulting dataframe has the same schema as the left one
 inactive_italian_users_from_2024 = (
     italian_users.join(purchases_from_2024, on="UserID", how="left_anti")
 )
@@ -99,24 +105,5 @@ purchases_in_2023 = (
     # count(PurchaseID) will automatically count such users who did not buy anything in 2023 as 0
     .agg{"PurchaseID": "count"}
     .withColumnRenamed("count(PurchaseID)", "Purchases")
-    .write.csv(output_path_2)
+    .write.csv(output_path_2, header=True) # UserID, Purchases as first line
 )
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-

@@ -11,8 +11,8 @@ meetings_path = 'meetings.txt'
 invitations_path = 'invitations.txt'
 participations_path = 'participations.txt'
 
-output_dir1 = "/path/to/output1"
-output_dir2 = "/path/to/output2"
+output_path_1 = "path/to/dir1"
+output_path_2 = "path/to/dir2"
 
 # ------------------------------------
 # Part 1
@@ -28,15 +28,16 @@ equal to the maximum number of allowed participants. A user is considered an act
 participant in a meeting if he/she participated in the meeting (according to the content
 of Participations.txt). Store the identifiers (UIDs) of the selected users in the first HDFS
 output folder. Specifically, store one UID per output line.
+
+Note. Remind that the same user can participate multiple times in the same meeting.
 """
 
 meetings = spark.read.csv(meetings_path, header=True, inferSchema=True) # (MID,Title,StartTime,EndTime,OrganizerUID,MaxParticipants)
 participations = spark.read.csv(participations_path, header=True, inferSchema=True) # (MID,UID,JoinTimestamp,LeaveTimestamp)
 
-# NOTE: for a SQL-native alternative use:
+# NOTE, for a SQL-native alternative use:
 #   - .filter("StartTime LIKE '2024%'")
 #   - .filter(YEAR(STR_TO_DATE(StartTime)) = 2024)
-
 def year(timestamp):
     return int(timestamp[:4])
 spark.udf().register("year", year) # Automatically infer return type
@@ -76,7 +77,7 @@ full_meetings_2024 = (
     full_meetings_2024
     .filter("numFullMeetings > 20")
     .select("OrganizerID")
-    .write.csv(output_dir1, header=True) # `OrganizerUID` as first line
+    .write.csv(output_path_1, header=True) # `OrganizerUID` as first line
 )
 
 # ------------------------------------
@@ -90,6 +91,10 @@ result in the second HDFS output folder. Specifically, there is one output line 
 user who organized at least one meeting. Each line contains the UID of one of the
 users who organized meetings, followed by the number of meetings UID organized in
 2024 but did not participate in
+
+Note. Those users who always participated in the meetings they organized must also
+be stored in the second output folder (for those users, the number of meetings they
+organized in 2024 but did not participate in is 0).
 """
 
 # NOTE: always prefer re-using already defined dataframes
@@ -126,18 +131,18 @@ meetings_with_organizer_presence = (
     #   - (0, 1) if UID is NOT the organizer of MID, and joined MID
     #   - (1, 1) if UID is the organizer of MID, and joined MID
     #   - (0, 0) logically means the user is nor the organizer, nor joined the meetins. This state is impossible
-    #   - Note that even if we sum 1s and 0s, logically we can never achieve values >1 in the two items as
+    #
+    #   NOTE: even if we sum 1s and 0s, logically we can never achieve values >1 in the two items as
     #   participations_2024 was built with a distinct() who removed duplicate MID, UID keys; while meetings_2024 has at most
     #   one entry with a given MID (primary key), and of course the associated OrganizerUID
     .filter("sum(is_org)=1") # Select only entries for organizers
     .selectExpr("UID", "IF(sum(is_part)==0, 1, 0) AS missed")
 )
 
-
 (
     meetings_with_organizer_presence.groupBy("UID")
     .agg({"missed": "sum"})
     .withColumnRenamed("UID", "OrganizerUID")
     .withColumnRenamed("sum(missed)", "totMissed")
-    .write.csv(output_dir2)
+    .write.csv(output_path_2, header=True) # OrganizerUID, totMissed as first line
 )
