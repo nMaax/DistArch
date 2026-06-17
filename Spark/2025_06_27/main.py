@@ -10,83 +10,97 @@ users_path = 'users.txt'
 products_path = 'products.txt'
 purchases_path = 'purchases.txt'
 
+output_path_1 = "path/to/dir1"
+output_path_2 = "path/to/dir2"
+
 # ------------------------------------
 # Part 1
 
-users_df = spark.read.csv(users_path, header=True, inferSchema=True)
-products_df = spark.read.csv(products_path, header=True, inferSchema=True)
-purchases_df = spark.read.csv(purchases_path, header=True, inferSchema=True)
+"""
+For each user type, total number of purchases from 2010 to 2020 made by Italian
+users. The first part of this application considers only Italian users and the
+purchases from 2010 to 2020. It computes, for each user type, the total number of
+purchases made by the Italian users from 2010 to 2020. Store the result in the first
+output folder. The output contains one line for each user type.
+The output format is as follows:
+user type, total number of purchases made by the Italian users of this user type
+from 2010 to 2020.
+"""
 
-# Select only what necessary
-# I will re-use this df later
-users_df = users_df.filter("Country == 'Italian'").select("UserID", "Type")
+users = spark.read.csv(users_path, header=True, inferSchema=True) # (UserID,Age,Gender,Country,UserType)
+purchases = spark.read.csv(purchases_path, header=True, inferSchema=True) # (PurchaseID,UserID,ProductID,PurchaseDate)
 
-# NOTE: probably SQL already has some built-in function to get the year out of a string, parsing it via ISO etc.
-# but I cannot remind it, so I will define a UDF. If one had access to full documentation then they should prefer the
-# built-in function for optimization
+# NOTE, for a SQL-native alternative use:
+#   - .filter("StartTime LIKE '201%' OR StartTime LIKE '2020%'")
+#   - .filter(YEAR(STR_TO_DATE(StartTime)) <= 2020 AND ...)
 def year(purchaseDate):
     return int(purchaseDate[:4])
 spark.udf().register("year", year)
 
-# Select only what necessary
-purchases_2010_2020 = (
-    purchases_df
+italian_users = (
+    users
+    .filter("Country == 'Italian'")
+    .select("UserID", "Type")
+) # (UserID, Type)
+
+purchases_2010_to_2020 = (
+    purchases
     .filter("year(purchaseDate) >= 2010 AND year(purchaseDatee) <= 2020")
     .select("PurchaseID", "UserID")
-    )
+) # (PurchaseID, UserID)
 
-# We dont want non-italian users, nor italian users who only purchased outside the 2010, 2020 range
-# since PurchaseID is the primary key, count() on
-purchases_per_type = (
-    purchases_2010_2020
-    .join(users_df, on="UserID", how="inner")
+(
+    purchases_2010_to_2020
+    .join(italian_users, on="UserID", how="inner")
     .groupBy("Type")
-    .count() # Could have also used agg("PurchaseID", "count AS Purchases")
-    .withColumnRenamed("count", "Purchases") # I assume spark will name the count() it "count(1)"
+    .count()
+    .withColumnRenamed("count(1)", "Purchases")
+    .write.csv(output_path_1)
 )
 
-# Save the result
-purchases_per_type.write.csv(output_dir1)
+# ------------------------------------
+# Part 2
 
-# ------------------------------------ # Part 2
-
-users_df = users_df.select("UserID") # We dont need Type anymore
+"""
+Number of purchases in 2023 for each Italian user who did not make purchases
+from 2024. The second part of this application considers only the Italian users
+without purchases from 2024. Considering only that subset of users, the second
+part of this application computes the number of purchases in 2023 for each of those
+users. The value for each user must be returned even when it is zero. The
+result is stored in the second output folder. The output contains one line for each
+Italian user without purchases from 2024. The output format is as follows:
+UserID, number of purchases made by UserID in 2023
+"""
 
 purchases_from_2024 = (
-    purchases_df
+    purchases
     .filter("year(purchaseDate) >= 2024")
     .select("PurchaseID", "UserID")
     )
 
-# NOTE: maybe I could have used the IN () clause by using the spark.sql() command or equivalent
-# then I may had need to register the dataframes as views to be visible to sql
-inactive_users_from_2024 = (
-    users_df
-    # Spark provides left semi and left anti, both will return only columns from the left df, semi will select such rows that have a matching key in the right, anti will select only rows from the left that have no matching key on the right
-    .join(purchases_from_2024, on="UserID", how="left_anti")
+inactive_italian_users_from_2024 = (
+    italian_users.join(purchases_from_2024, on="UserID", how="left_anti")
 )
 
 purchases_in_2023 = (
-    purchases_df
+    purchases
     .filter("year(purchaseDate) = 2023")
     .select("PurchaseID", "UserID")
-    )
+)
 
-inactive_users_purchases_in_2023 = (
+(
     purchases_in_2023
-    .join(inactive_users_from_2024, on="UserID", how="right")
+    .join(inactive_italian_users_from_2024, on="UserID", how="right")
     .groupBy("UserID")
-    # we cannot just .count() as it would count rows with NaN PurchaseID as if they where 1 item,
-    # if we instead call .count(columnName) we force the system to only count items with non-null values in that specific column \
+    # NOTE: we cannot just .count(), nor agg({"*": "count"}) as it would include rows with PurchaseID = None / NaN / Na,
+    # if we instead call .agg({"PurchaseID": "count"}) we force the system to only count items with non-null values in that specific column \
     # i.e., the below purchaseID will automatically ignore None items returned from the right outer join above
-    # as a result, we dont even have to care about using .fillna(0) for such items, count(PurchaseID) will automatically count such users who did not buy anything in 2023 as 0
-    # however, count("column") is not available in spark! So we must use agg
-    .agg{"PurchaseID": "count"} # or agg(count("PurchaseID").alias("Purchases")) or .agg(expr("count(PurchaseID) AS Purchases"))
+    # as a result, we dont even have to care about using .fillna(0) for such items
+    # count(PurchaseID) will automatically count such users who did not buy anything in 2023 as 0
+    .agg{"PurchaseID": "count"}
     .withColumnRenamed("count(PurchaseID)", "Purchases")
-    )
-
-# Save result
-inactive_users_purchases_in_2023.write.csv(output_dir2)
+    .write.csv(output_path_2)
+)
 
 
 
