@@ -32,6 +32,52 @@ output folder. Specifically, store one UID per output line.
 Note. Remind that the same user can participate multiple times in the same meeting.
 """
 
+# --- RDDs ---
+
+meetings = sc.textFile(meetings_path) # (MID,Title,StartTime,EndTime,OrganizerUID,MaxParticipants)
+participations = sc.textFile(participations_path) # (MID,UID,JoinTimestamp,LeaveTimestamp)
+
+meetings_2024 = (
+    meetings
+    .map(lambda line: line.split(",")) # MID=0,Title=1,StartTime=2,EndTime=3,OrganizerUID=4,MaxParticipants=5
+    .filter(lambda items: int(items[2][:4]) == 2024)
+    .map(lambda items: (items[0], (items[4], int(items[5])))) # MID, (OrganizerUID, MaxParticipants)
+)
+
+# NOTE: I could also filter participations to only those in 2024 assuming a participation to a meeting in 2024
+# shall resonably happen in 2024 too. This way I can aleviate workload on distinct() as less rows will be processed
+# I will then use JoinTimestamp as reference, ignoring edge cases for meetings done in new year eve for people who joined in 2025
+# (to include such cases, I can simply check the joinTimestamp year is in {2024, 2025})
+# However Spark is already smart enough during join to not share such rows which wont be involved in the inner-join
+# thus we can ignore this!
+unique_participations = (
+    participations
+    .map(lambda line: line.split(",")) # MID=0,UID=1,JoinTimestamp=2,LeaveTimestamp=3
+    # .filter(lambda items: int(items[2][:4])==2024) # Reduce rows for faster shuffle later
+    .map(lambda items: (items[0], items[1])) # MID, UID
+    .distinct() # So that if a user entered and left the same meeting multiple times, it is not counted twice
+)
+
+num_unique_participations_per_meeting = (
+    unique_participations
+    .map(lambda pair: (pair[0], 1))
+    .reduceByKey(lambda a, b:a+b) # MID, NumUniqueParticipants
+)
+
+(
+    meetings_2024
+    .join(num_unique_participations_per_meeting) # MID, ((OrganizerUID, MaxParticipants), NumUniqueParticipants)
+    .mapValues(lambda value: (value[0][0], value[0][1], value[1])) # MID, (OrganizerUID, MaxParticipants, NumUniqueParticipants)
+    .filter(lambda pair: pair[1][1] == pair[1][2]) # select MaxParticipants == NumUniqueParticipants
+    .map(lambda pair: (pair[1][0], 1)) # OrganizerUID, 1
+    .reduceByKey(lambda a, b: a + b) # OrganizerUID, NumFullMeetings
+    .filter(lambda pair: pair[1] > 20)
+    .map(lambda pair: pair[0])
+    .saveAsTextFile(output_path_1)
+)
+
+# --- DataFrames ---
+
 meetings = spark.read.csv(meetings_path, header=True, inferSchema=True) # (MID,Title,StartTime,EndTime,OrganizerUID,MaxParticipants)
 participations = spark.read.csv(participations_path, header=True, inferSchema=True) # (MID,UID,JoinTimestamp,LeaveTimestamp)
 
@@ -97,10 +143,21 @@ be stored in the second output folder (for those users, the number of meetings t
 organized in 2024 but did not participate in is 0).
 """
 
-# NOTE: always prefer re-using already defined dataframes
-# we cannot simply use participations_2024 as it does not include meetings with 0 participations
-# (i.e., nor the organizer, nor anyone else joined it)
-# we need then to join information from meetings_2024 back in.
+# --- RDDs ---
+
+(
+    meetings_2024
+    .leftOuterJoin(unique_participations) # MID, ((OrganizerUID, MaxParticipants), UID or None)
+    # NOTE: None values will result in a false boolean above, thus giving isOrganizer=0
+    .map(lambda pair: ((pair[0], pair[1][0]), int(pair[1][0][0] == pair[1][1]))) # (MID, OrganizerUID), isOrganizer{0,1} (if OrganizerUID==UID then 1, else 0)
+    .reduceByKey(lambda a, b: a + b) # (MID, OrganizerUID), orgJoined{0,1} (1 if organizer joined)
+    .map(lambda pair: (pair[0][1], 1-pair[1])) # OrganizerUID, orgNotJoined{0,1} (1 if organizer did not join)
+    .reduceByKey(lambda a, b: a + b) # OrganizerUID, NumMeetingsOrganizedNotJoined
+    .map(lambda pair: f"{pair[0]},{pair[1]}")
+    .saveAsTextFile(output_path_2)
+)
+
+# --- DataFrames ---
 
 # Organizer = 1, Participant = 0
 org_df = meetings_2024.selectExpr(
