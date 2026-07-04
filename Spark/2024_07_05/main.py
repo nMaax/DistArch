@@ -28,6 +28,28 @@ accepted+rejected) in the first output folder. Each output line contains one of 
 selected job postings and its number of offers in 2024.
 """
 
+# --- RDDs ---
+
+offers = sc.textFile(offers_path) # (OfferID,JobID,OfferDate,Salary,Status,SSN)
+
+(
+    offers
+    .map(lambda line: line.split(","))
+    .filter(lambda items: int(items[2][:4]) >= 2024) # offers made from January 1, 2024
+    # NOTE: alternatively you can reduce upone two columns only, considering the other as a subtraction of it
+    #       e.g. totOffers - totAccepted = totRejected
+    #       another approach is to use two columns, one for totOffers and the other as a cumuluative
+    #       sum of +1 if accepted and -1 if rejected, if the final result is < 0 then we keep it
+    .map(lambda items: (items[1], (int(items[3] == 'Accepted'), int(items[3] == 'Rejected') , 1))) # JobID, (isAccepted{0,1}, isRejected{0,1}, 1)
+    .reduceByKey(lambda a, b: (a[0] + b[0], a[1] + b[1], a[2] + b[2])) # JobID, (totAccepted, totRejected, totOffers)
+    .filter(lambda pair: pair[1][1] > pair[1][0], pair[1][2] > 10) # totRejected > totAccepted, and totOffers > 10
+    .map(lambda pair: f"{pair[0]},{pair[1][2]}") # "JobID,totOffers"
+    .saveAsTextFile(output_path_1)
+)
+
+
+# --- DataFrames ---
+
 offers = spark.read.csv(offers_path, header=True, inferSchema=True) # (OfferID,JobID,OfferDate,Salary,Status,SSN)
 
 (
@@ -44,35 +66,6 @@ offers = spark.read.csv(offers_path, header=True, inferSchema=True) # (OfferID,J
     .select("JobID", "NumOffers")
     .write.csv(output_path_1, header=True)
 )
-
-# ---- OR ----
-
-# Part 1
-def mapJobStatus(l):
-    jobID = l.split(",")[1]
-    status = l.split(",")[4]
-
-    if (status=='Accepted'):
-        return (jobID, (1, -1))
-    else:
-        return (jobID, (1, +1))
-
-# - filter offers with offer date associated with 2024
-# - map to (JobId, (1, +1/-1)) +1 = Rejected, -1 = Accepted
-# - reduceByKey to compute the number of offers for each job and the number of rejected offers - number of accepted offers
-# - filter #offers>=10 and #rejected>#accepted
-# - map to JobId, #offers
-# - save
-offersPerJob = offers\
-    .filter(lambda l: l.split(",")[2].startswith("2024"))\
-    .map(mapJobStatus)\
-    .reduceByKey(lambda v1, v2: (v1[0]+v2[0], v1[1]+v2[1]))\
-    .filter(lambda p: p[1][0]>=10 and p[1][1]>0)\
-    .map(lambda p: (p[0], p[1][0]))
-# - save the result
-
-offersPerJob.saveAsTextFile(output1)
-
 
 # ------------------------------------
 # Part 2
@@ -91,26 +84,87 @@ country, number of years with more than 50% of the accepted offers not associate
 with a contract per output line).
 
 +-------------------+---------+------+------+--------+------------+
-| Title             | Country | Year |  # A | # A,NC |     %      |
+| Title             | Country | Year | # A  | # A,NC |     %      | Include?
 +-------------------+---------+------+------+--------+------------+
-| Software Engineer | IT      | 2024 |  10  |    6   |    60%     |
-| Software Engineer | IT      | 2023 |  2   |    2   |    100%    |
-| Software Engineer | IT      | 2010 |  5   |    4   |    80%     |
-| Software Engineer | IT      | 2004 |  1   |    0   |     0%     |
-| Data Engineer     | IT      | 2020 |  1   |    1   |    100%    |
-| Data Engineer     | IT      | 2019 |  3   |    2   |   66.6%    |
-| Data Engineer     | IT      | 2018 |  2   |    2   |    100%    |
-| Data Engineer     | ES      | 2018 |  1   |    0   |     0%     |
-| Data Scientist    | FR      | 2024 |  8   |    6   |    75%     |
-| Data Scientist    | FR      | 2020 |  2   |    2   |    100%    |
-| Data Scientist    | FR      | 2018 |  3   |    1   |   33.3%    |
+| Software Engineer | IT      | 2024 |  10  |    6   |    60%     | V
+| Software Engineer | IT      | 2023 |  2   |    2   |    100%    | V
+| Software Engineer | IT      | 2010 |  5   |    4   |    80%     | V
+| Software Engineer | IT      | 2004 |  1   |    0   |     0%     | X (tot = 3)
+| Data Engineer     | IT      | 2020 |  1   |    1   |    100%    | V
+| Data Engineer     | IT      | 2019 |  3   |    2   |   66.6%    | V
+| Data Engineer     | IT      | 2018 |  2   |    2   |    100%    | V
+| Data Engineer     | ES      | 2018 |  1   |    0   |     0%     | X (tot = 3)
+| Data Scientist    | FR      | 2024 |  8   |    6   |    75%     | V
+| Data Scientist    | FR      | 2020 |  2   |    2   |    100%    | V
+| Data Scientist    | FR      | 2018 |  3   |    1   |   33.3%    | X (tot = 2)
 +-------------------+---------+------+------+-----+---------------+
 
 Associated Output:
-* Software Engineer, IT, 3
-* Data Engineer, IT, 3
+- Software Engineer, IT, 3
+- Data Engineer, IT, 3
 
+Note that there are from 0 to 1 contracts for each accepted offer. No
+contracts for rejected offers.
 """
+
+# --- RDDs ---
+
+
+job_postings = sc.textFile(job_postings_path) # (JobID,Title,Country,Continent,PublicationDate)
+contracts = sc.textFile(contracts_path) # (ContractID,OfferID,ContractDate,ContractType)
+
+accepted_offers = (
+    offers
+    .map(lambda line: line.split(","))
+    .filter(lambda items: items[4] == 'Accepted') # Only Accepted offers
+    .map(lambda items: (items[1], items[0])) # JobID, OfferID
+)
+
+job_posting_since_2000 = (
+    job_postings
+    .map(lambda line: line.split(","))
+    .filter(lambda items: int(items[4][:4]) >= 2000) # Only Job postings since 2000
+    .map(lambda items: (items[0], (items[1], items[2], int(items[4][:4])))) # JobID, (Title, Country, PublicationYear)
+)
+
+accepted_offers_since_2000 = (
+    accepted_offers
+    .join(job_posting_since_2000) # JobID, (OfferID, (Title, Country, PublicationYear))
+    .map(lambda pair: (pair[1][0], (pair[1][1][0], pair[1][1][1], pair[1][1][2]))) # OfferID, (Title, Country, PublicationYear)
+)
+
+# NOTE: since there are from 0 to 1 contract for each accepted offer, and no contract for rejected offers
+# OfferID is functionally unique in contracts table:
+#   if to some contract CA there is associated some offer OA, then offer OB cannot be associated to CA, and OA must be exclusively accepted
+#   similarly, we suppose a given offer OA cannot be associated to multiple other contract (e.g. OA -> CA, CB)
+#   if not, then we can simply add a distinct() below the map to (OfferId, 1)
+contracts_simple = (
+    contracts
+    .map(lambda line: line.split(","))
+    .map(lambda items: (items[1], 1)) # OfferID, 1
+)
+
+tot_accepted_offers = (
+    accepted_offers_since_2000
+    .leftOuterJoin(contracts_simple) # OfferID, ((Title, Country, PublicationYear), 1 or None)
+    .map(lambda pair: ((pair[1][0][0], pair[1][0][1], pair[1][0][2]), (0 if pair[1][1] is None else 1, 1))) # (Title, Country, PublicationYear), (AssociatedWithContract{0,1}, 1)
+    .reduceByKey(lambda a, b: (a[0] + b[0], a[1] + b[1])) # (Title, Country, PublicationYear), (TotAcceptedOffersWithContract, TotAcceptedOffers)
+)
+
+(
+    tot_accepted_offers
+    .map(lambda pair: ((pair[0][0], pair[0][1]), 1 if 1 - pair[1][0] / pair[1][1] > 0.5 else 0)) # (Title, Country), ManyNoContractAcceptedOffers{0, 1} (over different years)
+    # ManyNoContractAcceptedOffers is obtained by (TotAcceptedOffers - TotAcceptedOffersWithContract)/TotAcceptedOffers = TotAcceptedOffersNoContract/TotAcceptedOffers > 0.5 (or, equivalently 1 - TotAcceptedOffersWithContract/TotAcceptedOffers > 0.5)
+    # NOTE: Keep only years with ManyNoContractAcceptedOffers, 0's do not serve us, so we can do a faster reduceByKey
+    .filter(lambda pair: pair[1] == 1)
+    .reduceByKey(lambda a, b: a+b) # (Title, Country), totYearsWithManyNoContractAcceptedOffers
+    .filter(lambda pair: pair[1]>=3)
+    .map(lambda pair: f"{pair[0][0]}, {pair[0][1]}, {pair[1]}")
+    .saveAsTextFile(output_path_2)
+)
+
+
+# --- DataFrames ---
 
 job_postings = spark.read.csv(job_postings_path, header=True, inferSchema=True) # (JobID,Title,Country,Continent,PublicationDate)
 contracts = spark.read.csv(contracts_path, header=True, inferSchema=True) # (ContractID,OfferID,ContractDate,ContractType)
@@ -142,64 +196,49 @@ contracts = spark.read.csv(contracts_path, header=True, inferSchema=True) # (Con
     .write.csv(output_path_2)
 )
 
-# ---- OR ----
+# --- SparkSQL ---
 
-def JobIdTitleCountryYear(l):
-    fields = l.split(",")
-    jobId=fields[0]
-    title=fields[1]
-    country=fields[2]
-    year=fields[4].split("/")[0]
+# Register base views
+offers.createOrReplaceTempView("offers_v")
+job_postings.createOrReplaceTempView("postings_v")
+contracts.createOrReplaceTempView("contracts_v")
 
-    return (jobId, (title, country, year))
+pure_sql_query = """
+    WITH YearlyMetrics AS (
+        -- Step 1: Calculate the total counts and ratios per Title, Country, and Year
+        SELECT
+            p.Title,
+            p.Country,
+            YEAR(TO_DATE(p.PublicationDate, 'yyyy/MM/dd')) as PubYear,
+            COUNT(*) as TotalAccepted,
+            COUNT(c.ContractID) as TotalContracts
+        FROM offers_v o
+        INNER JOIN postings_v p ON o.JobID = p.JobID
+        LEFT JOIN contracts_v c ON o.OfferID = c.OfferID
+        WHERE o.Status = 'Accepted'
+          AND YEAR(TO_DATE(p.PublicationDate, 'yyyy/MM/dd')) >= 2000
+        GROUP BY p.Title, p.Country, YEAR(TO_DATE(p.PublicationDate, 'yyyy/MM/dd'))
+    ),
+    FlaggedYears AS (
+        -- Step 2: Identify individual years where no-contract ratio is > 50%
+        SELECT
+            Title,
+            Country,
+            CASE WHEN (1.0 - (TotalContracts / TotalAccepted)) > 0.5 THEN 1 ELSE 0 END as IsTargetYear
+        FROM YearlyMetrics
+    )
+    -- Step 3: Roll up metrics by Title and Country to count the target years
+    SELECT
+        Title,
+        Country,
+        SUM(IsTargetYear) as TargetYearCount
+    FROM FlaggedYears
+    GROUP BY Title, Country
+    HAVING SUM(IsTargetYear) >= 3
+"""
 
-# - select the JobPosting with year >=2000
-# - map to (JobId, (Title, country, year))
-jobPostings2000 = jobPostings\
-    .filter(lambda l : l.split(',')[4]>='2000/01/01')\
-    .map(JobIdTitleCountryYear)
-
-def JobIdOfferId(l):
-    fields = l.split(",")
-    offerId=fields[0]
-    jobId=fields[1]
-
-    return (jobId, offerId)
-
-# - select accepted offers
-# - map to (JobId, OfferId)
-offersAccepted = offers\
-    .filter(lambda l : l.split(',')[4]=='Accepted')\
-    .map(JobIdOfferId)
-
-# - join jobPostings2000 with offersAccepted -> (JobId, ((Title, country, year) , OfferId) )
-# - map to (OfferId, (Title, country, year))
-postingsJoinOffers = jobPostings2000\
-    .join(offersAccepted)\
-    .map(lambda p : (p[1][1],  p[1][0]))
-
-# - map contracts to (offerId, contractId)
-# - contracts right outer join postingsJoinOffers
-# - map to ((Title, country, year), (1, 0/1)) 0 = contract - 1 = None, i.e., no contract
-# - reduceByKey to compute, for each (Title, country, year), the total number of accepted offers and
-#        the accepted offers not associated with a contract
-#- select only the pairs with ratio > 50%
-titleCountryYear50 = contracts.map(lambda l: (l.split(",")[1], l.split(",")[0]))\
-    .rightOuterJoin(postingsJoinOffers)\
-    .map(lambda p: (p[1][1], (1, 1 if p[1][0] is None else 0)))\
-    .reduceByKey(lambda v1, v2: (v1[0]+v2[0], v1[1]+v2[1]))\
-    .filter(lambda p : (p[1][1]/p[1][0])>0.5)
-
-# - map to ((Title, country), 1)
-# - reduceByKey to count the number of selected years for each combination (Title, country)
-# - select the combination with at least 3 years
-titleCountryNumYears = titleCountryYear50.map(lambda p: ( (p[0][0],p[0][1]), 1) )\
-    .reduceByKey(lambda v1, v2: v1+v2)\
-    .filter(lambda p: p[1]>=3)
-
-# Save the result
-titleCountryNumYears.saveAsTextFile(output2)
-
+# Run query and save
+spark.sql(pure_sql_query).write.csv(output_path_2, header=True)
 
 
 
