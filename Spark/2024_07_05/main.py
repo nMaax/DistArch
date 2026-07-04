@@ -13,6 +13,7 @@ contracts_path = 'contracts.txt'
 output_path_1 = "path/to/dir1"
 output_path_2 = "path/to/dir2"
 
+
 # ------------------------------------
 # Part 1
 
@@ -28,6 +29,7 @@ accepted+rejected) in the first output folder. Each output line contains one of 
 selected job postings and its number of offers in 2024.
 """
 
+
 # --- RDDs ---
 
 offers = sc.textFile(offers_path) # (OfferID,JobID,OfferDate,Salary,Status,SSN)
@@ -42,7 +44,7 @@ offers = sc.textFile(offers_path) # (OfferID,JobID,OfferDate,Salary,Status,SSN)
     #       sum of +1 if accepted and -1 if rejected, if the final result is < 0 then we keep it
     .map(lambda items: (items[1], (int(items[3] == 'Accepted'), int(items[3] == 'Rejected') , 1))) # JobID, (isAccepted{0,1}, isRejected{0,1}, 1)
     .reduceByKey(lambda a, b: (a[0] + b[0], a[1] + b[1], a[2] + b[2])) # JobID, (totAccepted, totRejected, totOffers)
-    .filter(lambda pair: pair[1][1] > pair[1][0], pair[1][2] > 10) # totRejected > totAccepted, and totOffers > 10
+    .filter(lambda pair: pair[1][1] > pair[1][0] and pair[1][2] > 10) # totRejected > totAccepted, and totOffers > 10
     .map(lambda pair: f"{pair[0]},{pair[1][2]}") # "JobID,totOffers"
     .saveAsTextFile(output_path_1)
 )
@@ -66,6 +68,29 @@ offers = spark.read.csv(offers_path, header=True, inferSchema=True) # (OfferID,J
     .select("JobID", "NumOffers")
     .write.csv(output_path_1, header=True)
 )
+
+
+# --- SparkSQL ---
+
+offers.createOrReplaceTempView("offers_v")
+
+part1_sql_query = """
+    SELECT
+        JobID,
+        COUNT(*) AS NumOffers
+    FROM offers_v
+    WHERE TO_DATE(OfferDate, 'yyyy/MM/dd') >= '2024-01-01'
+    GROUP BY JobID
+    HAVING COUNT(*) >= 10
+       AND SUM(CASE WHEN Status = 'Rejected' THEN 1 ELSE 0 END) >
+           SUM(CASE WHEN Status = 'Accepted' THEN 1 ELSE 0 END)
+"""
+
+(
+    spark.sql(part1_sql_query)
+    .write.csv(output_path_1, header=True)
+)
+
 
 # ------------------------------------
 # Part 2
@@ -107,8 +132,8 @@ Note that there are from 0 to 1 contracts for each accepted offer. No
 contracts for rejected offers.
 """
 
-# --- RDDs ---
 
+# --- RDDs ---
 
 job_postings = sc.textFile(job_postings_path) # (JobID,Title,Country,Continent,PublicationDate)
 contracts = sc.textFile(contracts_path) # (ContractID,OfferID,ContractDate,ContractType)
@@ -196,10 +221,9 @@ contracts = spark.read.csv(contracts_path, header=True, inferSchema=True) # (Con
     .write.csv(output_path_2)
 )
 
+
 # --- SparkSQL ---
 
-# Register base views
-offers.createOrReplaceTempView("offers_v")
 job_postings.createOrReplaceTempView("postings_v")
 contracts.createOrReplaceTempView("contracts_v")
 
@@ -237,18 +261,4 @@ pure_sql_query = """
     HAVING SUM(IsTargetYear) >= 3
 """
 
-# Run query and save
 spark.sql(pure_sql_query).write.csv(output_path_2, header=True)
-
-
-
-
-
-
-
-
-
-
-
-
-

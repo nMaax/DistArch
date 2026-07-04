@@ -14,6 +14,7 @@ user_watched_lecture_path = 'user_watched_lecture.txt'
 output_path_1 = "path/to/dir1"
 output_path_2 = "path/to/dir2"
 
+
 # ------------------------------------
 # Part 1
 
@@ -26,6 +27,7 @@ line).
 
 Note: Suppose there is at least one lecture for each course
 """
+
 
 # --- RDDs ---
 
@@ -41,8 +43,8 @@ lectures = sc.textFile(lectures_path) # (NUML,CID,Title,Date,StartingHour,Durati
     .saveAsTextFile(output_path_1)
 )
 
-# --- DataFrames ---
 
+# --- DataFrames ---
 
 lectures = spark.read.csv(lectures_path, header=True, inferSchema=True) # (NUML,CID,Title,Date,StartingHour,Duration,Recorded)
 
@@ -56,6 +58,7 @@ lectures = spark.read.csv(lectures_path, header=True, inferSchema=True) # (NUML,
     .select("CID")
     .write.csv(output_path_1, header=True)
 )
+
 
 # --- Spark SQL ---
 
@@ -71,6 +74,7 @@ part1_sql = """
 
 spark.sql(part1_sql).write.csv(output_path_1, header=True)
 
+
 # ------------------------------------
 # Part 2
 
@@ -84,6 +88,7 @@ student, consider only the courses for which the student watched at least one
 recorded lecture. Store the result in the second output folder (one of the selected
 combinations (SID, CID) per output line).
 """
+
 
 # --- RDDs ---
 
@@ -112,7 +117,7 @@ def all_unique_lectures(pair):
 )
 
 # However, this means that the groupBy will include a large amount of numbers which will be stored in main memory,
-# thus, highly active students will end up clogging the worknode; we can rather do
+# thus, highly active students will end up clogging the worknode; we can do better...
 
 invalid_SID_CID = (
     user_watched_lecture
@@ -137,6 +142,7 @@ invalid_SID_CID = (
     .subtract(invalid_SID_CID)
     .saveAsTextFile(output_path_2)
 )
+
 
 # --- DataFrames ---
 
@@ -183,6 +189,7 @@ too_many_times_watched_course_lecture = (
 #       of your chain. The output of subtract() is already guaranteed to be distinct.
 #   -   We dont need to care about calling .distinct() on left or right of the anti join as Spark Catalyst Optimizer handles it for us
 #       (we can simply call it later)
+
 
 # --- SparkSQL ---
 

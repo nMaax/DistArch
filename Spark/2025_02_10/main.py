@@ -14,6 +14,7 @@ participations_path = 'participations.txt'
 output_path_1 = "path/to/dir1"
 output_path_2 = "path/to/dir2"
 
+
 # ------------------------------------
 # Part 1
 
@@ -31,6 +32,7 @@ output folder. Specifically, store one UID per output line.
 
 Note. Remind that the same user can participate multiple times in the same meeting.
 """
+
 
 # --- RDDs ---
 
@@ -75,6 +77,7 @@ num_unique_participations_per_meeting = (
     .map(lambda pair: pair[0])
     .saveAsTextFile(output_path_1)
 )
+
 
 # --- DataFrames ---
 
@@ -126,6 +129,43 @@ full_meetings_2024 = (
     .write.csv(output_path_1, header=True) # `OrganizerUID` as first line
 )
 
+
+# --- SparkSQL ---
+
+meetings.createOrReplaceTempView("meetings_table")
+participations.createOrReplaceTempView("participations_table")
+
+part1_sql_query = """
+    WITH UniqueParticipantsPerMeeting AS (
+        -- Step 1: Deduplicate entries and count actual unique participants per meeting
+        SELECT
+            MID,
+            COUNT(DISTINCT UID) AS ActualParticipants
+        FROM participations_table
+        GROUP BY MID
+    ),
+    FullMeetings2024 AS (
+        -- Step 2: Filter for 2024 meetings where actual participants hit the max limit
+        SELECT
+            m.OrganizerUID
+        FROM meetings_table m
+        INNER JOIN UniqueParticipantsPerMeeting p ON m.MID = p.MID
+        WHERE m.StartTime LIKE '2024%' -- Robust string check for 2024 (or YEAR(m.StartTime) = 2024)
+          AND p.ActualParticipants = m.MaxParticipants
+    )
+    -- Step 3: Extract organizers with more than 20 maxed-out meetings
+    SELECT OrganizerUID
+    FROM FullMeetings2024
+    GROUP BY OrganizerUID
+    HAVING COUNT(*) > 20
+"""
+
+(
+    spark.sql(part1_sql_query)
+    .write.csv(output_path_1, header=False)
+)
+
+
 # ------------------------------------
 # Part 2
 
@@ -143,6 +183,7 @@ be stored in the second output folder (for those users, the number of meetings t
 organized in 2024 but did not participate in is 0).
 """
 
+
 # --- RDDs ---
 
 (
@@ -156,6 +197,7 @@ organized in 2024 but did not participate in is 0).
     .map(lambda pair: f"{pair[0]},{pair[1]}")
     .saveAsTextFile(output_path_2)
 )
+
 
 # --- DataFrames ---
 
@@ -202,4 +244,43 @@ meetings_with_organizer_presence = (
     .withColumnRenamed("UID", "OrganizerUID")
     .withColumnRenamed("sum(missed)", "totMissed")
     .write.csv(output_path_2, header=True) # OrganizerUID, totMissed as first line
+)
+
+
+# --- SparkSQL ---
+
+part2_sql_query = """
+    WITH Meetings2024 AS (
+        -- Step 1: Isolate all meetings organized in 2024
+        SELECT MID, OrganizerUID
+        FROM meetings_table
+        WHERE StartTime LIKE '2024%'
+    ),
+    DeduplicatedParticipations AS (
+        -- Step 2: Get a clean roster of who attended which meeting
+        SELECT DISTINCT MID, UID
+        FROM participations_table
+    ),
+    OrganizerAttendance AS (
+        -- Step 3: Left join meeting organizers against the attendance roster
+        SELECT
+            m.OrganizerUID,
+            m.MID,
+            CASE WHEN p.UID IS NULL THEN 1 ELSE 0 END AS Missed
+        FROM Meetings2024 m
+        LEFT JOIN DeduplicatedParticipations p
+          ON m.MID = p.MID
+         AND m.OrganizerUID = p.UID
+    )
+    -- Step 4: Aggregate per organizer to sum up missed meetings (including 0s)
+    SELECT
+        OrganizerUID,
+        SUM(Missed) AS NumMeetingsOrganizedNotJoined
+    FROM OrganizerAttendance
+    GROUP BY OrganizerUID
+"""
+
+(
+    spark.sql(part2_sql_query)
+    .write.csv(output_path_2, header=False)
 )

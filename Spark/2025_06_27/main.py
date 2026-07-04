@@ -31,6 +31,7 @@ user type from 2010 to 2020, i.e., no user type is associated with zero
 purchases made by Italian users from 2010 to 2020
 """
 
+
 # --- RDDs ---
 
 users = sc.textFile(users_path) # (UserID,Age,Gender,Country,UserType)
@@ -59,6 +60,7 @@ purchases_2010_to_2020 = (
     .saveAsTextFile(output_path_1)
 )
 
+
 # --- DataFrames ---
 
 users = spark.read.csv(users_path, header=True, inferSchema=True) # (UserID,Age,Gender,Country,UserType)
@@ -79,7 +81,7 @@ italian_users = (
 
 purchases_2010_to_2020 = (
     purchases
-    .filter("year(purchaseDate) >= 2010 AND year(purchaseDatee) <= 2020")
+    .filter("year(purchaseDate) >= 2010 AND year(purchaseDate) <= 2020")
     .select("PurchaseID", "UserID")
 ) # (PurchaseID, UserID)
 
@@ -91,6 +93,25 @@ purchases_2010_to_2020 = (
     .withColumnRenamed("count(1)", "Purchases")
     .write.csv(output_path_1, header=True) # Type, Purchases as first line
 )
+
+
+# --- SparkSQL ---
+
+users.createOrReplaceTempView("users_view")
+purchases.createOrReplaceTempView("purchases_view")
+
+part1_sql = """
+    SELECT
+        u.Type,
+        COUNT(*) AS Purchases
+    FROM purchases_view p
+    INNER JOIN users_view u ON p.UserID = u.UserID
+    WHERE u.Country = 'Italian'
+      AND SUBSTRING(p.PurchaseDate, 1, 4) BETWEEN '2010' AND '2020'
+    GROUP BY u.Type
+"""
+spark.sql(part1_sql).write.csv(output_path_1, header=True)
+
 
 # ------------------------------------
 # Part 2
@@ -105,6 +126,7 @@ result is stored in the second output folder. The output contains one line for e
 Italian user without purchases from 2024. The output format is as follows:
 UserID, number of purchases made by UserID in 2023
 """
+
 
 # --- RDDs ---
 
@@ -138,6 +160,7 @@ purchases_2023 = (
     .saveAsTextFile(output_path_2)
 )
 
+
 # --- DataFrames ---
 
 purchases_from_2024 = (
@@ -167,7 +190,29 @@ purchases_in_2023 = (
     # i.e., the below purchaseID will automatically ignore None items returned from the right outer join above
     # as a result, we dont even have to care about using .fillna(0) for such items
     # count(PurchaseID) will automatically count such users who did not buy anything in 2023 as 0
-    .agg{"PurchaseID": "count"}
+    .agg({"PurchaseID": "count")}
     .withColumnRenamed("count(PurchaseID)", "Purchases")
     .write.csv(output_path_2, header=True) # UserID, Purchases as first line
 )
+
+
+# --- SparkSQL ---
+
+part2_sql = """
+    SELECT
+        u.UserID,
+        COUNT(p2023.PurchaseID) AS Purchases
+    FROM users_view u
+    LEFT JOIN purchases_view p2023
+      ON u.UserID = p2023.UserID
+     AND SUBSTRING(p2023.PurchaseDate, 1, 4) = '2023'
+    WHERE u.Country = 'Italian'
+      AND NOT EXISTS (
+          SELECT 1
+          FROM purchases_view p2024
+          WHERE p2024.UserID = u.UserID
+            AND SUBSTRING(p2024.PurchaseDate, 1, 4) >= '2024'
+      )
+    GROUP BY u.UserID
+"""
+spark.sql(part2_sql).write.csv(output_path_2, header=True)

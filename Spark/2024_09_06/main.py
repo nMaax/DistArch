@@ -15,6 +15,7 @@ daily_sales_path = 'daily_sales.txt'
 output_path_1 = "path/to/dir1"
 output_path_2 = "path/to/dir2"
 
+
 # ------------------------------------
 # Part 1
 
@@ -24,6 +25,7 @@ application considers only the years 2022 and 2023. It selects the categories wi
 total number of sales in 2023 greater than the total number of sales in 2022. Store
 the selected categories in the first output folder (one category per output line).
 """
+
 
 # --- RDDs ---
 
@@ -120,6 +122,7 @@ pivoted_sales_22_23 = (
 # NOTE: maybe there exist an even more optimized implementation using some native pivot functionality for RDD?
 # For example, handling directly a big Sales_22_23 table carrying (Category, Year) as a key and then pivotinon Year
 # Answer: NO. RDDs do not have a pivot() function. You must make it manually like above
+
 
 # --- DataFrames ---
 
@@ -225,6 +228,7 @@ tot_sales_22_23_per_cat = (
     #.option("header", "true") # for including the head "Category"
 )
 
+
 # --- SparkSQL ---
 
 # Define a UDF for extracting the year
@@ -255,6 +259,7 @@ res1_df = spark.sql(
 
 res1_df.write.csv('out1SQL',header=False)
 
+
 # ------------------------------------
 # Part 2
 
@@ -272,6 +277,7 @@ Suppose the function nextDate(date) is provided. Given a date in the format
 ‘YYYY/MM/DD’, nextDate(date) returns the next date (again in the format
 ‘YYYY/MM/DD’). For example, nextDate(‘2018/04/05’) returns the date ‘2018/04/06’.
 """
+
 
 # --- RDDs ---
 
@@ -524,7 +530,8 @@ res.saveAsTextFile('out2')
 #       Shuffle 2 (groupByKey):
 #           Duplicated rows sent over network: 14,600 × 2 = 29,200 rows
 
-# --- DataFrames (using professor assumption) ---
+
+# --- DataFrames (under professor assumption) ---
 
 # Register function given by exercise command
 spark.udf.register("nextDate", nextDate)
@@ -586,7 +593,8 @@ yesterday = daily_income.alias("yesterday")
     .write.csv(output_path_2, header=True)
 )
 
-# --- SparkSQL (using professor assumption) ---
+
+# --- SparkSQL (under professor assumption) ---
 
 income_df = spark.sql(
     """SELECT dailySales.itemId, dailySales.Date, NumberofSales*Price as income """ +
