@@ -32,6 +32,14 @@ the year 2023 (i.e., you do not have to deal with a maximum number of purchases
 equal to zero in this part of the problem).
 """
 
+
+# --- RDDs ---
+
+...
+
+
+# --- DataFrames ---
+
 purchases = spark.read.csv(purchases_path, header=True, inferSchema=True) # (SaleTimestamp,UserID,ItemID,SalePrice)
 
 # Better to use SQL built-in functions instead of broadcasting a udf
@@ -102,9 +110,13 @@ max_user_purchases_count_22_23 = (
     .write.csv(output_path_1)
 )
 
-# ---- OR ----
 
-# This function returns the year part given a timestamp
+# --- SparkSQL ---
+
+purchases2223DF.createOrReplaceTempView("purchases2223")
+userCountPurchases2223DF.createOrReplaceTempView("userCountPurchases2223")
+maxPurchases2223DF.createOrReplaceTempView("maxPurchases2223")
+
 def year(timestamp):
     return int(timestamp.split("/")[0])
 
@@ -115,13 +127,7 @@ purchases2223DF = spark.sql("""
     WHERE Year(SaleTimestamp)=2022 OR Year(SaleTimestamp)=2023
 """).cache()
 
-# Associate purchases2223DF to temp. table purchases2223
-purchases2223DF.createOrReplaceTempView("purchases2223")
 
-# Count for each user and year the number of purchases the user made
-#   - key = userId
-#   - value = (count2022, count2023)
-#   and use a reduceByKey to count the number of purchases for each year 2002 and 2023 separately
 userCountPurchases2223DF = spark.sql("""
     SELECT UserID,
     SUM(IF(year(SaleTimestamp)==2022, 1, 0)) AS Counter22,
@@ -130,21 +136,11 @@ userCountPurchases2223DF = spark.sql("""
     GROUP BY UserID
 """).cache()
 
-# Associate userCountPurchases2223DF to temp. table userCountPurchases2223
-userCountPurchases2223DF.createOrReplaceTempView("userCountPurchases2223")
-
-# Compute for each year (2022 and 2023), the maximum number of purchases among all users
 maxPurchases2223DF = spark.sql("""
     SELECT MAX(Counter22) AS Max2022, MAX(Counter23) AS Max2023
     FROM userCountPurchases2223
 """)
 
-# Associate maxPurchases2223DF to temp. table maxPurchases2223
-maxPurchases2223DF.createOrReplaceTempView("maxPurchases2223")
-
-# Filter userCountPurchases2223DF
-# by keeping only the records with Counter22 or Counter23 equal to Max2022 or Max2023, respectively
-# and then return only the users
 res1DF = spark.sql("""
     SELECT UserID
     FROM userCountPurchases2223, maxPurchases2223
@@ -152,6 +148,7 @@ res1DF = spark.sql("""
 """)
 
 res1DF.write.csv(outputPath1,header=False)
+
 
 # ------------------------------------
 # Part 2
@@ -168,6 +165,13 @@ the maximum value. Store the result in the second HDFS output folder (one pair
 pair (Category, “NoPurchases”) for the categories without purchases in the
 period 2022-2023.
 """
+
+# --- RDDs ---
+
+...
+
+
+# --- DataFrames ---
 
 catalogue = spark.read.csv(catalogue_path, header=True, inferSchema=True) # (ItemID,Name,Category,StillinProduction)
 
@@ -217,11 +221,14 @@ max_purchases_per_cat = (
     .write.csv(output_path_2)
 )
 
-# ---- OR ----
 
-# Considering the purchases in year 2022/2023 (purchases2223)
-# apply a distinct to obtain the distinct user-product purchases,
-# and then count for each itemID the number of distinct users who bought that item
+# --- SparkSQL ---
+
+itemCategoryDF.createOrReplaceTempView("itemCategory")
+itemDistinctUsersPurchasesDF.createOrReplaceTempView("itemDistinctUsersPurchases")
+itemCategoryPurchasesDF.createOrReplaceTempView("itemCategoryPurchases")
+res2DF.createOrReplaceTempView("res2")
+
 itemDistinctUsersPurchasesDF = spark.sql("""
     SELECT itemID, count(*) as NumDistinctUsers
     FROM (SELECT DISTINCT itemId, userID
@@ -229,20 +236,11 @@ itemDistinctUsersPurchasesDF = spark.sql("""
     GROUP BY itemID
 """)
 
-# Associate itemDistinctUsersPurchasesDF to temp. table itemDistinctUsersPurchases
-itemDistinctUsersPurchasesDF.createOrReplaceTempView("itemDistinctUsersPurchases")
-
-# For each item, we retrieve the corresponding category
 itemCategoryDF = spark.sql("""
     SELECT itemId, Category
     FROM catalogue
 """).cache()
 
-# Associate itemCategoryDF to temp. table itemCategory
-itemCategoryDF.createOrReplaceTempView("itemCategory")
-
-# We join itemCategoryDF with itemDistinctUsersPurchasesDF.
-# We keep only on copy of itemID
 itemCategoryPurchasesDF = (
     itemCategoryDF
     .join(
@@ -255,11 +253,6 @@ itemCategoryPurchasesDF = (
     ).cache()
 )
 
-# Associate itemCategoryPurchasesDF to temp. table itemCategoryPurchases
-itemCategoryPurchasesDF.createOrReplaceTempView("itemCategoryPurchases")
-
-# Compute for each category the maximum number distinct users who purchased the item in the inner query/table function.
-# Join it with itemCategoryPurchases and filter keeping only the items with NumDistinctUsers == MaxPerCat for its category
 res2DF = spark.sql("""
     SELECT itemCategoryPurchases.Category, itemId
     FROM itemCategoryPurchases,
@@ -270,12 +263,9 @@ res2DF = spark.sql("""
     AND itemCategoryPurchases.NumDistinctUsers=MaximumsPerCategories.MaxPerCat
 """)
 
-# Associate res2DF to temp. table res2
-res2DF.createOrReplaceTempView("res2")
-
-# From res2 we need to add the 0-case, i.e., categories with items which were never purchased
-# we do this by considering all items and categories in catalogue and we apply a NOT IN.
-# Finally, we join the two parts of the final result
+# NOTE: The UNION (in the SQL language) removes duplicates.
+# If there are many items associated to a Category without purchases
+# only one record "Category, NoPurchases" is returned
 res2FinalDF = spark.sql("""
     SELECT Category, "NoPurchases" AS itemId
     FROM itemCategory
@@ -283,24 +273,4 @@ res2FinalDF = spark.sql("""
     UNION SELECT * FROM res2
 """)
 
-# NOTE: The UNION (in the SQL language) removes duplicates.
-# If there are many items associated to a Category without purchases
-# only one record "Category, NoPurchases" is returned
-
-# Update res2 with a final Union
 res2FinalDF.write.csv(outputPath2,header=False)
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
