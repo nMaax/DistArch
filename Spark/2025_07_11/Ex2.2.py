@@ -1,79 +1,110 @@
-# %% Imports
+import pyspark
 
-from pyspark import SparkContext, SparkConf
+from pyspark import SparkContext
 from pyspark.sql import SparkSession
 from pyspark.sql.types import IntegerType
 
-# %% Session and init
-
-conf = SparkConf().setAppName("Lab2").setMaster("local[*]")
-sc = SparkContext(conf=conf)
 ss = SparkSession.builder.getOrCreate()
+sc = SparkContext
 
-# %% Input files
+students_path = "students.txt"
+courses_path = "courses.txt"
+recorded_lectures_path = "recorded_lectures.txt"
+student_watched_lecture_path = "student_watched_lecture.txt"
 
-courses_path = "..."  # From input file
-recorded_lectures_path = "..."  # From input file
-student_watched_lecture_path = "..."  # From input file
+output_path_1 = "path/to/dir1"
+output_path_2 = "path/to/dir2"
 
-# %% Output files
 
-output2_path = "..."  # Whatever you want
+# ------------------------------------
+# Part 2
+
+"""
+Course(s) with the maximum number of visualizations in 2024 and the minimum
+number of visualizations in 2023. The second part of this application considers only
+the visualizations related to the years 2023 and 2024. The second part of this
+application calculates for each course the number of visualizations (each line of
+StudentsWatchedRecordedLectures.txt is a visualization) in 2023 and the number
+of visualizations in 2024. Then, it selects the course(s) associated with the
+maximum number of visualizations in 2024 and the minimum number of
+visualizations in 2023. In case of a tie, all courses associated with the maximum
+value in 2024 and the minimum value in 2023 must be selected and stored in the
+output folder. If there are no courses that satisfy both constraints, the output folder
+is empty.
+
+The result is stored in the second output folder (one selected course per output
+line). The output format is as follows:
+CID,Number of visualizations associated with this course in 2024,Number of
+visualizations associated with this course in 2023
+
+Note that the case with both values (the maximum number of visualizations in
+2024 and the minimum number of visualizations in 2023) equal to zero must also
+be considered.
+
+Note that the output is empty if there are no courses that satisfy both
+constraints.
+"""
+
 
 # %% --- RDDs ---
-
-# NOTE: the below is missing header removal!
 
 courses_rdd = sc.textFile(courses_path)
 lectures_rdd = sc.textFile(recorded_lectures_path)
 visualizations_rdd = sc.textFile(student_watched_lecture_path)
 
-courses_rdd = courses_rdd.map(
-    lambda line: (line.split(",")[0], None)
-)  # (CID, None), a value is required by Spark!
-lectures_rdd = lectures_rdd.map(
-    lambda line: (line.split(",")[0], line.split(",")[1])
-)  # (LID, CID)
-visualizations_rdd = visualizations_rdd.map(
-    lambda line: (line.split(",")[2], (line.split(",")[0], int(line.split(",")[1][:4])))
-)  # (LID, (SID, year))
 
-# Filter onli visualizations in 2023, 2024
-visualizations_rdd = visualizations_rdd.filter(
-    lambda items: items[1][1] in (2023, 2024)
+lectures_rdd = (
+    lectures_rdd
+    .map(lambda line: line.split(","))
+    .map(lambda items: (items[0], items[1])) # LID, CID
 )
 
-visualizations_rdd = visualizations_rdd.rightOuterJoin(
-    lectures_rdd
-)  # (LID, ((SID, year), CID))
+visualizations_rdd = (
+    visualizations_rdd
+    .map(lambda line: line.split(","))
+    .map(lambda items: (items[2], (items[0], int(items[1][:4]))))  # LID, (SID, year)
+    .filter(lambda pair: pair[1][1] in (2023, 2024)) # Only visualizations in 2023, 2024
+)
 
-visualizations_rdd = visualizations_rdd.map(
-    lambda items: (items[1][1], (items[0], items[1][0]))
-)  # (CID, (LID, (SID, year)))
+visualizations_rdd = (
+    visualizations_rdd
+    .rightOuterJoin(lectures_rdd)  # LID, ((SID, year) or None, CID)
+    .map(lambda items: (items[1][1], (items[0], items[1][0])))  # CID, (LID, (SID, year) or None)
+)
 
-# This will result in (CID, ((LID, (SID, year)), None))
-# we can drop the None, then, due to the outer joins, we will have some rows
-# where SID, year, and enventually LID are nan/None/null, those count as no visualizations for the given course
-visualizations_rdd = visualizations_rdd.rightOuterJoin(courses_rdd)
+courses_rdd = (
+    courses_rdd.map(lambda line: (line.split(",")[0], None) # (CID, None)
+)
 
+visualizations_rdd = (
+    visualizations_rdd
+    .rightOuterJoin(courses_rdd) # CID, ((LID, (SID, year) or None) or None, None)
+)
 
-def visualizations_2324(items):
-    # Items is: (CID, ((LID, (SID, year)), None))
-    CID = items[0]
-    LID_SID_year_dummy = items[1]  # ((LID, (SID, year)), None)
-    LID_SID_year, _ = LID_SID_year_dummy  # Throw away dummy
+def visualizations_2324(pair):
+    # Items is: CID, ((LID, (SID, year) or None) or None, None)
+    CID = pair[0]
+
+    # Throw away outer-most None
+    LID_SID_year = pair[1][0] # (LID, (SID, year) or None) or None
 
     if LID_SID_year is None:
         # The course had no registered lectures
         return CID, (0, 0)
 
-    _, SID_year = LID_SID_year  # Thorw away LID
+    # LID_SID_year --> LID, (SID, year) or None
+
+    # Thorw away LID
+    SID_year = LID_SID_year[1] # (SID, year) or None
 
     if SID_year is None:
-        # The course had registered lectures, but no one watch them
+        # The course had registered lectures, but no one watched them
         return CID, (0, 0)
 
-    _, year = SID_year  # Throw away SID
+    # SID_year --> SID, year
+
+    # Throw away SID
+    year = SID_year[1] # year
 
     count_23 = 0
     if year == 2023:
@@ -93,10 +124,11 @@ def sum_2324(counts_A, counts_B):
 
 
 # Map NaNs to 0, visualizations to 1, and then we sum all togheter
-visualizations_rdd = visualizations_rdd.map(visualizations_2324).reduceByKey(
-    sum_2324
-)  # CID, (count_23, count_24)
-
+visualizations_rdd = (
+    visualizations_rdd
+    .map(visualizations_2324) # CID, (count_23{0, 1}, count_24{0, 1})
+    .reduceByKey(sum_2324)  # CID, (count_23, count_24)
+)
 
 def minmax_2324(counts_A, counts_B):
     count_23_A, count_24_A = counts_A
@@ -104,13 +136,17 @@ def minmax_2324(counts_A, counts_B):
     return min(count_23_A, count_23_B), max(count_24_A, count_24_B)
 
 
-min23, min24 = visualizations_rdd.values().reduce(
-    minmax_2324
-)  # This should result in just one line, with the two items min and max
+min23, min24 = (
+    visualizations_rdd
+    .values()
+    .reduce(minmax_2324)  # This should result in just one line, with the two items min and max
+)
 
-visualizations_rdd.filter(
-    lambda items: items[1][0] == min23 and items[1][1] == min24
-).saveAsTextFile(output2_path)
+(
+    visualizations_rdd
+    .filter(lambda items: items[1][0] == min23 and items[1][1] == min24)
+    .saveAsTextFile(output2_path)
+)
 
 # %% --- Dataframes ---
 

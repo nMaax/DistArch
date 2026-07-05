@@ -13,6 +13,7 @@ purchases_path = 'purchases.txt'
 output_path_1 = "path/to/dir1"
 output_path_2 = "path/to/dir2"
 
+
 # ------------------------------------
 # Part 1
 
