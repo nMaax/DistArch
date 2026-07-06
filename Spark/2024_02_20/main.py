@@ -35,7 +35,65 @@ equal to zero in this part of the problem).
 
 # --- RDDs ---
 
-...
+purchases = sc.textFile(purchases_path) # (SaleTimestamp,UserID,ItemID,SalePrice)
+
+purchases_22_23 = (
+    purchases
+    .map(lambda line: line.split(","))
+    .filter(lambda items: int(items[0][:4]) in {2022, 2023})
+).cache()
+
+def unroll_purchases(pair):
+    UserID, year = pair[0]
+    numPurchases = pair[1]
+
+    numPurchases_2022 = 0
+    numPurchases_2023 = 0
+
+    if year == 2022:
+        numPurchases_2022 = numPurchases
+
+    if year == 2023:
+        numPurchases_2023 = numPurchases
+
+    return UserID, (numPurchases_2022, numPurchases_2023)
+
+users_w_num_purchases = (
+    purchases_22_23
+    .map(lambda items: ((items[1], int(items[0][:4])), 1)) # (UserID, year), 1
+    .reduceByKey(lambda a, b: a+b) # (UserID, year), NumPurchases
+    # NOTE: using this function will lead to users having at most 2 lines each (one as (0, x), the other as (y, 0))
+    # since such values containing 0 by desing, the later reduceByKey wont actually cumulate non-zero values togheter
+    # but simply merge such tuples resulting in (x, y) for each user
+    .map(unroll_purchases) # UserID, (numPurchases_2022, numPurchases_2023); one line per year
+    # NOTE: this reduce can be avoided as long as I place a distinct after keys() later
+    # otherwise I could select the same user multiple times (at most 2)
+    # since a reduceByKey is less sever on network usage, I prefer it (and it is also more convenient
+    # to run some aggreggation soon to reduce number of rows on which max() will have to work on)
+    .reduceByKey(lambda a, b: a + b) # UserID, (numPurchases_2022, numPurchases_2023)
+)
+
+# Even better, I can do it with just one reduceByKey...
+
+users_w_num_purchases = (
+    purchases_22_23
+    .map(lambda items: (items[1], int(items[0][:4]))) # UserID, year
+    .map(lambda pair: (pair[0], (1, 0) if pair[1]==2022 else (0, 1))) # UserId, (purchase22{0,1}, purchase23{0,1})
+    .reduceByKey(lambda a, b: (a[0] + b[0], a[1] + b[1])) # (UserID, (numPurchases_2022, numPurchases_2023)
+).cache()
+
+max_22, max_23 = (
+    users_w_num_purchases
+    .values()
+    .reduceByKey(lambda a, b: (max(a[0], b[0]), max(a[1], b[1])))
+)
+
+(
+    users_w_num_purchases
+    .filter(lambda pair: pair[1][0] == max_22 or pair[1][1] == max_23)
+    .keys()
+    .saveAsTextFile(output_path_1)
+)
 
 
 # --- DataFrames ---
@@ -168,7 +226,104 @@ period 2022-2023.
 
 # --- RDDs ---
 
-...
+catalogue = sc.textFile(catalogue_path) # (ItemID,Name,Category,StillinProduction)
+
+item_to_user_purchase = (
+    purchases_22_23 # (SaleTimestamp,UserID,ItemID,SalePrice)
+    .map(lambda items: (items[2], items[1])) # ItemID, UserID
+    # NOTE: we could potentially do the distinct after the join
+    # however we prefer it here as distinct() does some pre-reduce on the worknode
+    # which makes it slightly optimal for the network than a join on more rows
+    # suppose, e.g., that a user purchased the same item 2000 times during the two years
+    .distinct()
+    # NOTE: same reasoning as above, we can reduce the count of unique users
+    # before the join rather than later
+    # to save up on the number of rows which will be shared through the network
+    .mapValues(lambda value: 1) # ItemID, 1
+    .reduceByKey(lambda a, b: a + b) # ItemID, NumUniqueUsers (Num. unique users who bought ItemID in 2022 or 2023)
+)
+
+item_to_category = (
+    catalogue
+    .map(lambda line: line.split(","))
+    .map(lambda items: (items[0], items[2])) # ItemID, Category
+)
+
+category_to_users_item = (
+    item_to_user_purchase
+    .rightOuterJoin(item_to_category) # ItemID, (NumUniqueUsers or None, Category)
+    .map(lambda pair: (pair[1][1], (0 if pair[1][0] is None else pair[1][0], pair[0]))) # Category, (NumUniqueUsers, ItemID); one line per Item
+).cache()
+
+category_to_max_users = (
+    category_to_users_item
+    .mapValues(lambda value: value[0]) # Category, NumUniqueUsers; one line for each item
+    .reduceByKey(lambda a, b: max(a, b)) # Category, MaxNumUniqueUsers
+    .map(lambda pair: (pair, None)) # (Category, MaxNumUniqueUsers), None
+)
+
+# NOTE: equivalently, we could have joined the two tables with key=Category
+# and then prune all rows such that NumUniqueUsers != MaxNumUniqueUsers
+# with the below approach instead we are intrinsically pruning all such rows who do not match the above
+# equality, and doing so (we hope) Spark will pre-optimize row-matching (even if it doesnt, this solution is
+# not worse than join on cat. + filter; so we don't have nothing to lose)
+(
+    category_to_users_item
+    .map(lambda pair: ((pair[0], pair[1][0]), pair[1][1])) # (Category, NumUniqueUsers), ItemID
+    .join(category_to_max_users) # (Category, NumUniqueUsers), (ItemID, None)
+    .map(lambda pair: (pair[0][0], pair[1][0])) # Category, ItemID
+    .map(lambda pair: f"{pair[0]},{pair[1]}") # "Category, ItemID"
+    .saveAsTextFile(output_path_2)
+)
+
+# Only if this was correct... but the professor wants us to remove all rows for unsold categories and simply leave Category, "NoPurchases"
+# The solution above instead rather writes all Category, ItemID for all Items in the unsold category. So we rather do...
+
+# NOTE: this is excluding unsold items
+category_to_users_item = (
+    item_to_user_purchase # ItemID, NumUniqueUsers
+    .join(item_to_category) # ItemID, (NumUniqueUsers, Category)
+    .map(lambda pair: (pair[1][1], (pair[1][0], pair[0]))) # Category, (NumUniqueUsers, ItemID); one line per Item
+).cache()
+
+category_to_max_users = (
+    category_to_users_item
+    .mapValues(lambda value: value[0]) # Category, NumUniqueUsers; one line for each item
+    .reduceByKey(lambda a, b: max(a, b)) # Category, MaxNumUniqueUsers
+    .map(lambda pair: (pair, None)) # (Category, MaxNumUniqueUsers), None
+)
+
+# NOTE: this is still missing unsold categories (where all items are unsold items)
+category_to_most_sold_items = (
+    category_to_users_item
+    .map(lambda pair: ((pair[0], pair[1][0]), pair[1][1])) # (Category, NumUniqueUsers), ItemID
+    .join(category_to_max_users) # (Category, NumUniqueUsers), (ItemID, None)
+    .map(lambda pair: (pair[0][0], pair[1][0])) # Category, ItemID
+)
+
+sold_categories (
+    category_to_most_sold_items
+    .map(lambda pair: pair[0]) # Category
+)
+
+all_categories = (
+    catalogue
+    .map(lambda line: line.split(","))
+    .map(lambda items: items[2]) # Category
+    .distinct()
+)
+
+unsold_categories = (
+    all_categories
+    .subtract(sold_categories)
+    .map(lambda item: (item, "NoPurchases")) # (Unsold) Category, "NoPurchases"
+)
+
+(
+    category_to_most_sold_items
+    .union(unsold_categories)
+    .saveAsTextFile(output_path_2)
+)
 
 
 # --- DataFrames ---
